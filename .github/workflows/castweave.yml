@@ -1,0 +1,49 @@
+name: Build CastWeave
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake --preset windows-x64
+      - name: Build
+        run: cmake --build --preset windows-x64
+      - name: Package
+        shell: pwsh
+        run: |
+          cmake --install build_x64 --config RelWithDebInfo --prefix stage
+          $version = (Get-Content buildspec.json -Raw | ConvertFrom-Json).version
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$version") { throw 'Tag and version differ' }
+          Compress-Archive -Path stage/castweave -DestinationPath "CastWeave-$version-windows-x64.zip"
+          Get-FileHash "CastWeave-$version-windows-x64.zip" | ForEach-Object { $_.Hash + "  CastWeave-$version-windows-x64.zip" } | Set-Content SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CastWeave-windows-x64
+          path: |
+            CastWeave-*-windows-x64.zip
+            SHA256SUMS.txt
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: windows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: CastWeave-windows-x64
+          path: release-assets
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: gh release create "$RELEASE_TAG" release-assets/* --verify-tag --draft --title "CastWeave $RELEASE_TAG" --notes-file RELEASE_NOTES.md
