@@ -1,9 +1,6 @@
 #ifndef STREAMDOCK_PREVIEW
 #include <obs-module.h>
 #include <obs-frontend-api.h>
-#include <plugin-support.h>
-#else
-static const char *PLUGIN_VERSION = "0.5.0";
 #endif
 #include <QApplication>
 #include <cstdio>
@@ -26,7 +23,7 @@ static const char *PLUGIN_VERSION = "0.5.0";
 #include <QRegularExpression>
 #include <QSettings>
 #include <QSpinBox>
-#include <QTabWidget>
+#include <QDialog>
 #include <QTimer>
 #include <QUrl>
 #include <QVBoxLayout>
@@ -37,6 +34,7 @@ static const char *PLUGIN_VERSION = "0.5.0";
 #include <QAbstractTextDocumentLayout>
 #include <QHBoxLayout>
 #include <QToolButton>
+#include <QAction>
 #include <QHash>
 #include <QHelpEvent>
 #include <QToolTip>
@@ -44,6 +42,8 @@ static const char *PLUGIN_VERSION = "0.5.0";
 #include "update-installer.hpp"
 #include "twitch-chat.hpp"
 #include "chat-artwork.hpp"
+
+static constexpr auto kPluginVersion = CASTWEAVE_VERSION;
 
 static QString platformColor(const QString &platform) {
  return platform == "Twitch" ? "#b689ff" : platform == "YouTube" ? "#ff6269" : "#73e344";
@@ -151,7 +151,6 @@ protected:
 
 #ifndef STREAMDOCK_PREVIEW
 OBS_DECLARE_MODULE()
-OBS_MODULE_USE_DEFAULT_LOCALE("castweave", "en-US")
 MODULE_EXPORT const char *obs_module_description(void)
 {
  return "CastWeave: live Twitch chat and channel management.";
@@ -189,7 +188,7 @@ class StreamDock final : public QWidget {
   while (chat->count() > historyLimit) delete chat->takeItem(0);
  }
  void checkUpdates() {
-  const QString repository = "VodzGaming/castweave";
+  const QString repository = "zerithvt-Coder/castweave";
   if (!QRegularExpression("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$").match(repository).hasMatch()) {
    updateStatus->setText("Enter a GitHub repository as owner/repository."); return;
   }
@@ -226,8 +225,8 @@ class StreamDock final : public QWidget {
     updateStatus->setText("The latest release has an unsupported version tag."); return;
    }
    const auto latest = QVersionNumber::fromString(tag);
-   if (latest <= QVersionNumber::fromString(PLUGIN_VERSION)) {
-    updateStatus->setText("You are up to date. Installed: " + QString(PLUGIN_VERSION)); return;
+   if (latest <= QVersionNumber::fromString(kPluginVersion)) {
+    updateStatus->setText("You are up to date. Installed: " + QString(kPluginVersion)); return;
    }
    releaseUrl = QUrl("https://github.com/" + repository + "/releases/tag/" + QString::fromUtf8(QUrl::toPercentEncoding(object["tag_name"].toString())));
    QString notes = object.value("body").toString().left(2500);
@@ -238,6 +237,13 @@ class StreamDock final : public QWidget {
  }
 public:
  QWidget *streamsView = nullptr;
+ QDialog *settingsView = nullptr;
+ void showSettings() {
+  if(!settingsView) return;
+  settingsView->show();
+  settingsView->raise();
+  settingsView->activateWindow();
+ }
 #ifdef STREAMDOCK_PREVIEW
  bool checkChatUi() {
   chat->clear(); chatArtwork.showPreviewState(); liveChat.showPreviewState();
@@ -245,34 +251,37 @@ public:
   auto *input=findChild<QLineEdit*>("chatInput"); auto *send=findChild<QPushButton*>("chatSend");
   if(!input || !input->isEnabled() || !send || !send->isEnabled()) return false;
   input->setText("fixture send"); send->click(); if(!input->text().isEmpty()) return false;
+  auto *gear=findChild<QToolButton*>("settingsGear"); if(!gear) return false;
+  gear->click(); if(!settingsView->isVisible()) return false; settingsView->hide();
   return true;
  }
 #endif
  StreamDock() {
-  castweaveLog("plugin_loaded",{{"version",QString(PLUGIN_VERSION)}});
+  castweaveLog("plugin_loaded",{{"version",QString(kPluginVersion)}});
   setObjectName("streamdock");
   setFont(QFont("Segoe UI", 9));
   setMinimumSize(300, 380);
   setStyleSheet(
    "#streamdock, #streamdock QWidget { background:#18181b; color:#ededf0; }"
    "#streamdock QLabel { background:transparent; }"
-   "#streamdock QTabWidget::pane { border:0; border-top:1px solid #303035; }"
-   "#streamdock QTabBar::tab { background:transparent; color:#98989f; padding:10px 12px; border-bottom:2px solid transparent; }"
-   "#streamdock QTabBar::tab:selected { color:#ffffff; border-bottom:2px solid #a38aff; }"
    "#streamdock QListWidget { background:#141416; border:0; padding:4px; }"
    "#streamdock QLineEdit, #streamdock QSpinBox, #streamdock QComboBox { background:#202023; color:#eeeeef; border:1px solid #36363b; border-radius:5px; padding:7px; }"
    "#streamdock QLineEdit:disabled { color:#797980; }"
    "#streamdock QPushButton { padding:6px 10px; border:1px solid #36363b; border-radius:5px; background:#242427; color:#dddddf; }"
    "#streamdock QPushButton:hover { background:#333338; }"
    "#streamdock QPushButton:disabled { color:#74747c; background:#202023; }"
+   "#streamdock QToolButton#settingsGear { border:0; border-radius:5px; color:#a8a8b0; padding:3px; font-size:16px; }"
+   "#streamdock QToolButton#settingsGear:hover { background:#2a2a2f; color:#ffffff; }"
    "#streamdock QScrollArea { border:0; }");
   auto *root = new QVBoxLayout(this); root->setContentsMargins(12, 8, 12, 10); root->setSpacing(6);
   auto *heading = new QHBoxLayout;
   auto *title = new QLabel("CastWeave"); title->setStyleSheet("font-size:14px; font-weight:600;");
   heading->addWidget(title); heading->addStretch();
-  auto *preview = new QLabel("BETA"); preview->setStyleSheet("font-size:10px; color:#a79abd;"); heading->addWidget(preview); root->addLayout(heading);
-  auto *tabs = new QTabWidget; root->addWidget(tabs);
-  auto *chatPage = new QWidget; auto *chatLayout = new QVBoxLayout(chatPage);
+  auto *preview = new QLabel("BETA"); preview->setStyleSheet("font-size:10px; color:#a79abd;"); heading->addWidget(preview);
+  auto *settingsGear = new QToolButton; settingsGear->setObjectName("settingsGear"); settingsGear->setText(QString::fromUtf8("\xE2\x9A\x99"));
+  settingsGear->setToolTip("CastWeave Settings"); settingsGear->setAccessibleName("Open CastWeave Settings"); settingsGear->setFixedSize(28,28);
+  heading->addWidget(settingsGear); root->addLayout(heading);
+  auto *chatPage = new QWidget; auto *chatLayout = new QVBoxLayout(chatPage); chatLayout->setContentsMargins(0,0,0,0); chatLayout->setSpacing(6);
   filter = new QComboBox; filter->addItems({"All platforms", "Twitch", "YouTube", "Kick"});
   for(int i=1;i<filter->count();++i) filter->setItemIcon(i,QIcon(platformIcon(filter->itemText(i))));
   chat = new QListWidget; chat->setWordWrap(true); chat->setItemDelegate(new ChatDelegate(&chatArtwork,chat)); chat->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff); chat->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel); chat->setSelectionMode(QAbstractItemView::NoSelection); chatLayout->addWidget(chat);
@@ -330,7 +339,7 @@ public:
     auto *item = chat->item(i); item->setHidden(platform != "All platforms" && item->data(Qt::UserRole).toString() != platform);
    }
   });
-  tabs->addTab(chatPage, "Chat");
+  root->addWidget(chatPage);
   auto *streamsPage = new QWidget; auto *streams = new QVBoxLayout(streamsPage);
   streams->addWidget(new QLabel("Destinations & stream info"));
   for(const auto &platform : {"Twitch","YouTube","Kick"}) {
@@ -380,7 +389,14 @@ public:
   auto *streamsScroll = new QScrollArea; streamsScroll->setWidgetResizable(true); streamsScroll->setWidget(streamsPage);
   streamsView = new QWidget; streamsView->setObjectName("streamdock"); streamsView->setStyleSheet(styleSheet()); streamsView->setFont(font()); streamsView->setMinimumSize(300,300);
   auto *streamsRoot = new QVBoxLayout(streamsView); streamsRoot->setContentsMargins(10,8,10,8); streamsRoot->addWidget(streamsScroll);
-  auto *settingsPage = new QWidget; auto *options = new QVBoxLayout(settingsPage);
+  settingsView = new QDialog(this,Qt::Window); settingsView->setObjectName("streamdock"); settingsView->setWindowTitle("CastWeave Settings");
+  settingsView->setModal(false); settingsView->setMinimumSize(390,460); settingsView->resize(430,560); settingsView->setFont(font()); settingsView->setStyleSheet(styleSheet());
+  auto *settingsRoot = new QVBoxLayout(settingsView); settingsRoot->setContentsMargins(16,14,16,16);
+  auto *settingsPage = new QWidget; auto *options = new QVBoxLayout(settingsPage); options->setContentsMargins(0,0,0,0); options->setSpacing(8);
+  auto addSection=[options](const QString &text) {
+   auto *label=new QLabel(text); label->setStyleSheet("color:#a79abd; font-size:10px; font-weight:600;"); options->addWidget(label);
+  };
+  addSection("CHAT");
   options->addWidget(new QLabel("Chat history limit"));
   auto *limit = new QSpinBox; limit->setRange(50, 1000);
   historyLimit = qBound(50, settings.value("historyLimit", 300).toInt(), 1000);
@@ -389,12 +405,13 @@ public:
    historyLimit = value; settings.setValue("historyLimit", value);
    while(chat->count() > value) delete chat->takeItem(0);
   });
-  options->addWidget(new QLabel("Updates • Installed version " + QString(PLUGIN_VERSION)));
+  options->addSpacing(10); addSection("UPDATES");
+  options->addWidget(new QLabel("Installed version " + QString(kPluginVersion)));
   auto *automatic = new QCheckBox("Check for updates when OBS starts");
   automatic->setChecked(settings.value("checkAtStartup", true).toBool()); options->addWidget(automatic);
   connect(automatic, &QCheckBox::toggled, this, [this](bool enabled) { settings.setValue("checkAtStartup", enabled); });
   check = new QPushButton("Check for updates"); options->addWidget(check);
-  updateStatus = new QLabel("Updates are supplied by VodzGaming/castweave on GitHub, including preview releases.");
+  updateStatus = new QLabel("Updates are supplied by zerithvt-Coder/castweave on GitHub, including preview releases.");
   updateStatus->setTextFormat(Qt::PlainText); updateStatus->setWordWrap(true); options->addWidget(updateStatus);
   QString pluginRoot, helper;
 #ifndef STREAMDOCK_PREVIEW
@@ -405,7 +422,7 @@ public:
    helper=QString::fromUtf8(obs_get_module_data_path(obs_current_module()))+"/install-update.ps1";
   }
 #endif
-  updater=new UpdateInstaller(pluginRoot,helper,PLUGIN_VERSION); options->addWidget(updater);
+  updater=new UpdateInstaller(pluginRoot,helper,kPluginVersion); options->addWidget(updater);
 #ifndef STREAMDOCK_PREVIEW
   updater->configureRestart([]()->QString {
    if(obs_frontend_streaming_active() || obs_frontend_recording_active() || obs_frontend_replay_buffer_active() || obs_frontend_virtualcam_active())
@@ -415,14 +432,16 @@ public:
   },[] { return static_cast<QWidget*>(obs_frontend_get_main_window())->close(); });
 #endif
   connect(check, &QPushButton::clicked, this, [this] { checkUpdates(); });
+  options->addSpacing(10); addSection("DIAGNOSTICS");
   auto *openLog=new QPushButton("Open diagnostic log"); options->addWidget(openLog);
   connect(openLog,&QPushButton::clicked,this,[] {
    castweaveLog("log_opened"); QDesktopServices::openUrl(QUrl::fromLocalFile(castweaveLogPath()));
   });
   auto *logLocation=new QLabel("Log: "+QDir::toNativeSeparators(castweaveLogPath()));
   logLocation->setWordWrap(true); logLocation->setTextInteractionFlags(Qt::TextSelectableByMouse); options->addWidget(logLocation);
-  auto *restart = new QLabel("After downloading, click Restart OBS to finish installing."); restart->setWordWrap(true); options->addWidget(restart); options->addStretch();
-  auto *settingsScroll = new QScrollArea; settingsScroll->setWidgetResizable(true); settingsScroll->setFrameShape(QFrame::NoFrame); settingsScroll->setWidget(settingsPage); tabs->addTab(settingsScroll, "Settings");
+  auto *restart = new QLabel("After downloading, click Restart OBS to finish installing."); restart->setWordWrap(true); restart->setStyleSheet("color:#85858e; font-size:11px;"); options->addWidget(restart); options->addStretch();
+  auto *settingsScroll = new QScrollArea; settingsScroll->setWidgetResizable(true); settingsScroll->setFrameShape(QFrame::NoFrame); settingsScroll->setWidget(settingsPage); settingsRoot->addWidget(settingsScroll);
+  connect(settingsGear,&QToolButton::clicked,this,[this] { showSettings(); });
   if (automatic->isChecked()) QTimer::singleShot(5000, this, [this] { checkUpdates(); });
  }
 };
@@ -430,6 +449,7 @@ public:
 #ifndef STREAMDOCK_PREVIEW
 static QPointer<StreamDock> dock;
 static QPointer<QWidget> streamsDock;
+static QPointer<QAction> settingsAction;
 bool obs_module_load(void) { return true; }
 void obs_module_post_load(void) {
  dock = new StreamDock;
@@ -438,8 +458,13 @@ void obs_module_post_load(void) {
  if (!obs_frontend_add_dock_by_id("castweave.chat", "CastWeave Chat", dock)) {
   delete dock.data(); dock = nullptr;
  }
+ if(dock) {
+  settingsAction=static_cast<QAction*>(obs_frontend_add_tools_menu_qaction("CastWeave Settings"));
+  QObject::connect(settingsAction,&QAction::triggered,dock.data(),[] { if(dock) dock->showSettings(); });
+ }
 }
 void obs_module_unload(void) {
+ if(settingsAction) { delete settingsAction.data(); settingsAction=nullptr; }
  if(streamsDock) obs_frontend_remove_dock("castweave.streams");
  if(dock) obs_frontend_remove_dock("castweave.chat");
 }
@@ -480,6 +505,7 @@ int main(int argc, char **argv) {
  for(auto *panel:widget.streamsView->findChildren<QWidget*>()) if(auto *twitch=dynamic_cast<TwitchPanel*>(panel)) twitch->showPreviewState();
  widget.streamsView->resize(420,760); widget.streamsView->ensurePolished(); app.processEvents();
  widget.streamsView->grab().save("preview-streams.png");
+ widget.showSettings(); app.processEvents(); widget.settingsView->grab().save("preview-settings.png"); widget.settingsView->hide();
  delete widget.streamsView;
  std::fprintf(stdout,"PASS: chat parsing, permissions, send results, reconnects, emote rendering, editor and restart checks.\n");
  return 0;

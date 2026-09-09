@@ -91,6 +91,7 @@ class UpdateInstaller final : public QWidget {
  }
 public:
  UpdateInstaller(const QString &pluginRoot,const QString &helper,const QString &installedVersion={},QWidget *parent=nullptr):QWidget(parent),target(pluginRoot),script(helper) {
+  setSizePolicy(QSizePolicy::Preferred,QSizePolicy::Maximum);
   auto *layout=new QVBoxLayout(this); layout->setContentsMargins(0,0,0,0);
   fetch=new QPushButton("Download update"); install=new QPushButton("Restart OBS");
   status=new QLabel; status->setWordWrap(true); status->setTextFormat(Qt::PlainText);
@@ -147,7 +148,7 @@ private:
   expectedHash=asset["digest"].toString().mid(7).toLower();
   if(!QRegularExpression("^CastWeave-[0-9]+[.][0-9]+[.][0-9]+-windows-x64[.]zip$").match(name).hasMatch() ||
      !asset["digest"].toString().startsWith("sha256:") || !QRegularExpression("^[0-9a-f]{64}$").match(expectedHash).hasMatch() ||
-     url.scheme()!="https" || url.host()!="github.com" || !url.path().startsWith("/VodzGaming/castweave/releases/download/")) {
+     url.scheme()!="https" || url.host()!="github.com" || !url.path().startsWith("/zerithvt-Coder/castweave/releases/download/")) {
    status->setText("Release download metadata is incomplete. No update was downloaded."); return;
   }
   const qint64 declared=asset["size"].toInteger();

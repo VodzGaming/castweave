@@ -13,9 +13,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Configure
-        run: cmake --preset windows-x64
+        run: cmake --preset windows-x64 -DSTREAMDOCK_BUILD_PREVIEW=ON
       - name: Build
         run: cmake --build --preset windows-x64
+      - name: Test updater and preview
+        shell: pwsh
+        run: |
+          ./scripts/test-update.ps1
+          $qt = Get-ChildItem .deps -Directory -Filter 'obs-deps-qt6-*-x64' | Select-Object -First 1
+          $native = Get-ChildItem .deps -Directory -Filter 'obs-deps-20*-x64' | Where-Object Name -NotLike 'obs-deps-qt6-*' | Select-Object -First 1
+          if (!$qt -or !$native) { throw 'OBS Qt runtime dependencies were not found.' }
+          $env:PATH = "$($qt.FullName)\bin;$($native.FullName)\bin;$env:PATH"
+          $env:QT_PLUGIN_PATH = "$($qt.FullName)\plugins"
+          $env:QT_QPA_PLATFORM = 'minimal'
+          & ./build_x64/RelWithDebInfo/streamdock-preview.exe
+          if ($LASTEXITCODE -ne 0) { throw "CastWeave preview checks failed with exit code $LASTEXITCODE." }
       - name: Package
         shell: pwsh
         run: |
@@ -23,12 +35,15 @@ jobs:
           $version = (Get-Content buildspec.json -Raw | ConvertFrom-Json).version
           if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$version") { throw 'Tag and version differ' }
           Compress-Archive -Path stage/castweave -DestinationPath "CastWeave-$version-windows-x64.zip"
-          Get-FileHash "CastWeave-$version-windows-x64.zip" | ForEach-Object { $_.Hash + "  CastWeave-$version-windows-x64.zip" } | Set-Content SHA256SUMS.txt
+          choco install nsis --yes --no-progress
+          ./scripts/build-installer.ps1 -StagePath stage -OutputDirectory .
+          Get-FileHash "CastWeave-$version-windows-x64.zip", "CastWeave-$version-windows-x64-Setup.exe" | ForEach-Object { $_.Hash + "  " + (Split-Path $_.Path -Leaf) } | Set-Content SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
           name: CastWeave-windows-x64
           path: |
             CastWeave-*-windows-x64.zip
+            CastWeave-*-windows-x64-Setup.exe
             SHA256SUMS.txt
   release:
     if: startsWith(github.ref, 'refs/tags/v')

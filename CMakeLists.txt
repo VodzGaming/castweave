@@ -35,13 +35,17 @@ if(ENABLE_QT)
 endif()
 
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE src/streamdock.cpp)
+target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE CASTWEAVE_VERSION="${PROJECT_VERSION}")
 
 set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})
 
 option(STREAMDOCK_BUILD_PREVIEW "Build the offscreen UI preview tool" OFF)
 if(STREAMDOCK_BUILD_PREVIEW)
   add_executable(streamdock-preview src/streamdock.cpp)
-  target_compile_definitions(streamdock-preview PRIVATE STREAMDOCK_PREVIEW)
+  target_compile_definitions(
+    streamdock-preview
+    PRIVATE STREAMDOCK_PREVIEW CASTWEAVE_VERSION="${PROJECT_VERSION}"
+  )
   target_link_libraries(streamdock-preview PRIVATE Qt6::Core Qt6::Widgets Qt6::Network)
 endif()
 
